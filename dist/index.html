@@ -800,6 +800,8 @@ footer{
 /* ═══════════════════════════════════════
    STATE
 ═══════════════════════════════════════ */
+const LS_KEY = 'sg_games_v2';
+const LS_TOKEN = 'sg_token';
 let TOKEN  = localStorage.getItem('sg_token') || null;
 let ADMIN  = !!TOKEN;
 let games  = [];
@@ -818,26 +820,114 @@ const PH   = [
 ];
 
 /* ═══════════════════════════════════════
-   API
+   API — with localStorage fallback
+   Works on Vercel (KV) AND locally (LS)
 ═══════════════════════════════════════ */
 const API = '/api';
-const headers = (extra={}) => ({
-  'Content-Type':'application/json',
-  ...(TOKEN?{Authorization:`Bearer ${TOKEN}`}:{}),
-  ...extra
-});
 
-async function apiGet(path){
-  const r = await fetch(API+path); return r.json();
+// Read TOKEN fresh every call so login updates work
+function getToken(){ return localStorage.getItem(LS_TOKEN)||null; }
+
+function authHeaders(){
+  const t = getToken();
+  return { 'Content-Type':'application/json', ...(t?{Authorization:`Bearer ${t}`}:{}) };
 }
-async function apiPost(path,body){
-  const r = await fetch(API+path,{method:'POST',headers:headers(),body:JSON.stringify(body)}); return r;
+
+// Detect if we have a real backend
+let _hasBackend = null;
+async function hasBackend(){
+  if(_hasBackend !== null) return _hasBackend;
+  try{
+    const r = await fetch('/api/games', {signal: AbortSignal.timeout(3000)});
+    _hasBackend = r.status !== 404 && r.status !== 0;
+  }catch{ _hasBackend = false; }
+  return _hasBackend;
 }
-async function apiPut(path,body){
-  const r = await fetch(API+path,{method:'PUT',headers:headers(),body:JSON.stringify(body)}); return r;
+
+// ── localStorage helpers ──
+function lsGetGames(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch{ return []; } }
+function lsSetGames(g){ localStorage.setItem(LS_KEY, JSON.stringify(g)); }
+function lsGenId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+// ── Unified API calls with LS fallback ──
+async function apiGetGames(){
+  if(await hasBackend()){
+    try{
+      const r = await fetch(`${API}/games`);
+      if(r.ok) return await r.json();
+    }catch{}
+  }
+  return lsGetGames();
 }
-async function apiDel(path){
-  const r = await fetch(API+path,{method:'DELETE',headers:headers()}); return r;
+
+async function apiAddGame(body){
+  if(await hasBackend()){
+    try{
+      const r = await fetch(`${API}/games`,{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+      const d = await r.json();
+      if(r.ok) return {ok:true, data:d};
+      return {ok:false, error:d.error||'Server error'};
+    }catch{}
+  }
+  // localStorage fallback
+  const games = lsGetGames();
+  const game = {id:lsGenId(), createdAt:Date.now(), ...body};
+  games.unshift(game);
+  lsSetGames(games);
+  return {ok:true, data:game};
+}
+
+async function apiUpdateGame(id, body){
+  if(await hasBackend()){
+    try{
+      const r = await fetch(`${API}/games/${id}`,{method:'PUT',headers:authHeaders(),body:JSON.stringify(body)});
+      const d = await r.json();
+      if(r.ok) return {ok:true, data:d};
+      return {ok:false, error:d.error||'Server error'};
+    }catch{}
+  }
+  // localStorage fallback
+  const games = lsGetGames();
+  const idx = games.findIndex(g=>g.id===id);
+  if(idx===-1) return {ok:false, error:'Not found'};
+  games[idx] = {...games[idx], ...body, id, createdAt:games[idx].createdAt};
+  lsSetGames(games);
+  return {ok:true, data:games[idx]};
+}
+
+async function apiDeleteGame(id){
+  if(await hasBackend()){
+    try{
+      const r = await fetch(`${API}/games/${id}`,{method:'DELETE',headers:authHeaders()});
+      if(r.ok) return {ok:true};
+      const d = await r.json().catch(()=>({}));
+      return {ok:false, error:d.error||'Server error'};
+    }catch{}
+  }
+  // localStorage fallback
+  const games = lsGetGames();
+  const filtered = games.filter(g=>g.id!==id);
+  lsSetGames(filtered);
+  return {ok:true};
+}
+
+async function apiLogin(username, password){
+  if(await hasBackend()){
+    try{
+      const r = await fetch(`${API}/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+      const d = await r.json();
+      if(r.ok) return {ok:true, token:d.token};
+      return {ok:false, error:d.error||'Invalid credentials'};
+    }catch{}
+  }
+  // Fallback: simple hardcoded check (change these!)
+  const FALLBACK_USER = 'senkuu';
+  const FALLBACK_PASS = 'admin1234';
+  if(username===FALLBACK_USER && password===FALLBACK_PASS){
+    const fakeToken = 'local_'+btoa(username+':'+Date.now());
+    return {ok:true, token:fakeToken};
+  }
+  return {ok:false, error:'Invalid credentials'};
 }
 
 /* ═══════════════════════════════════════
@@ -854,19 +944,23 @@ async function doLogin(){
   const btn=document.getElementById('login-btn');
   btn.innerHTML='<span class="spin"></span> Authenticating…';btn.disabled=true;
   document.getElementById('lerr').classList.remove('show');
-  try{
-    const r=await apiPost('/login',{username:u,password:p});
-    const d=await r.json();
-    if(!r.ok){showLoginErr(d.error||'Invalid credentials');return;}
-    TOKEN=d.token;localStorage.setItem('sg_token',TOKEN);
-    ADMIN=true;
-    hideModal('login-modal');
-    toast('Access granted. Welcome, admin.','success');
-    updateAuthUI();
-    document.getElementById('lu').value='';
-    document.getElementById('lp').value='';
-  }catch{showLoginErr('Network error. Try again.');}
-  finally{btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Enter Vault';btn.disabled=false;}
+  const result = await apiLogin(u, p);
+  if(!result.ok){
+    showLoginErr(result.error||'Invalid credentials');
+    btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Enter Vault';
+    btn.disabled=false;
+    return;
+  }
+  TOKEN=result.token;
+  localStorage.setItem(LS_TOKEN, TOKEN);
+  ADMIN=true;
+  hideModal('login-modal');
+  toast('Access granted. Welcome, admin.','success');
+  document.getElementById('lu').value='';
+  document.getElementById('lp').value='';
+  updateAuthUI();
+  btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Enter Vault';
+  btn.disabled=false;
 }
 
 function showLoginErr(msg){
@@ -876,7 +970,7 @@ function showLoginErr(msg){
 
 function doLogout(){
   TOKEN=null;ADMIN=false;
-  localStorage.removeItem('sg_token');
+  localStorage.removeItem(LS_TOKEN);
   toast('Logged out.','info');
   updateAuthUI();
 }
@@ -899,11 +993,10 @@ function updateAuthUI(){
 ═══════════════════════════════════════ */
 async function loadGames(){
   try{
-    const data = await apiGet('/games');
-    games = Array.isArray(data)?data:[];
+    games = await apiGetGames();
+    if(!Array.isArray(games)) games=[];
   }catch{
-    games=[];
-    toast('Could not reach server. Running offline.','error');
+    games = lsGetGames();
   }
   buildChips();
   filter();
@@ -1078,18 +1171,19 @@ async function saveGame(){
 
   const btn=document.getElementById('save-btn');
   btn.innerHTML='<span class="spin"></span> Saving…';btn.disabled=true;
-  try{
-    let r;
-    if(editId){ r=await apiPut(`/games/${editId}`,body); }
-    else { r=await apiPost('/games',body); }
-    const d=await r.json();
-    if(!r.ok){toast(d.error||'Failed to save.','error');return;}
-    if(editId){ games=games.map(g=>g.id===editId?d:g); toast('Game updated!','success'); }
-    else { games.unshift(d); toast('Game added to vault!','success'); }
+
+  const result = editId ? await apiUpdateGame(editId, body) : await apiAddGame(body);
+
+  if(!result.ok){
+    toast(result.error||'Failed to save.','error');
+  } else {
+    if(editId){ games=games.map(g=>g.id===editId?result.data:g); toast('Game updated!','success'); }
+    else { games.unshift(result.data); toast('Game added to vault!','success'); }
     hideModal('add-modal');
     updateStats();filter();
-  }catch{toast('Network error.','error');}
-  finally{btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Save to Vault';btn.disabled=false;}
+  }
+  btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Save to Vault';
+  btn.disabled=false;
 }
 
 /* ═══════════════════════════════════════
@@ -1098,23 +1192,21 @@ async function saveGame(){
 function delGame(id){
   const g=games.find(g=>g.id===id);if(!g) return;
   confirmDo('// DELETE GAME',`Remove "${g.title}" from the vault?`,async()=>{
-    try{
-      const r=await apiDel(`/games/${id}`);
-      if(!r.ok){toast('Failed to delete.','error');return;}
-      games=games.filter(g=>g.id!==id);
-      toast('Game removed.','info');
-      updateStats();filter();
-    }catch{toast('Network error.','error');}
+    const result = await apiDeleteGame(id);
+    if(!result.ok){ toast(result.error||'Failed to delete.','error'); return; }
+    games=games.filter(g=>g.id!==id);
+    toast('Game removed.','info');
+    updateStats();filter();
   });
 }
 
 function clearAll(){
   if(!games.length){toast('Vault already empty.','info');return;}
   confirmDo('// CLEAR VAULT','Delete ALL games? This cannot be undone.',async()=>{
-    try{
-      await Promise.all(games.map(g=>apiDel(`/games/${g.id}`)));
-      games=[];toast('Vault cleared.','info');updateStats();filter();
-    }catch{toast('Failed.','error');}
+    await Promise.all(games.map(g=>apiDeleteGame(g.id)));
+    games=[];
+    lsSetGames([]);
+    toast('Vault cleared.','info');updateStats();filter();
   });
 }
 
@@ -1192,8 +1284,8 @@ function importLib(e){
         let added=0;
         for(const g of data){
           if(!g.title||!g.downloadLink) continue;
-          const resp=await apiPost('/games',g);
-          if(resp.ok){const d=await resp.json();games.unshift(d);added++;}
+          const result=await apiAddGame(g);
+          if(result.ok){games.unshift(result.data);added++;}
         }
         toast(`Imported ${added} game(s).`,'success');updateStats();filter();
       });
