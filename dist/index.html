@@ -1218,7 +1218,8 @@ function confirmDo(t,msg,fn){
   document.getElementById('c-title').textContent=t;
   document.getElementById('c-msg').textContent=msg;
   document.getElementById('c-ok').onclick=()=>{hideModal('confirm-modal');fn();};
-  showModal('confirm-modal');
+  // defer so the triggering click event finishes propagating before overlay appears
+  setTimeout(()=>showModal('confirm-modal'),10);
 }
 
 /* ═══════════════════════════════════════
