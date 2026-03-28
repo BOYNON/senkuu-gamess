@@ -628,7 +628,7 @@ footer{
 <div class="modal" style="max-width:400px">
   <div class="mhead">
     <div class="mtitle">// ADMIN ACCESS</div>
-    <button class="mclose" onclick="close('login-modal')">✕</button>
+    <button class="mclose" onclick="hideModal('login-modal')">✕</button>
   </div>
   <div class="mbody">
     <div class="login-logo">SENKUU GAMESS</div>
@@ -646,7 +646,7 @@ footer{
     </div>
   </div>
   <div class="mfoot">
-    <button class="btn btn-ghost" onclick="close('login-modal')">Cancel</button>
+    <button class="btn btn-ghost" onclick="hideModal('login-modal')">Cancel</button>
     <button class="btn btn-cyan" id="login-btn" onclick="doLogin()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
       Enter Vault
@@ -660,7 +660,7 @@ footer{
 <div class="modal" style="max-width:650px">
   <div class="mhead">
     <div class="mtitle" id="add-title">// ADD GAME</div>
-    <button class="mclose" onclick="close('add-modal')">✕</button>
+    <button class="mclose" onclick="hideModal('add-modal')">✕</button>
   </div>
   <div class="mbody">
     <div class="fgrid">
@@ -729,7 +729,7 @@ footer{
   </div>
   <div class="mfoot">
     <button class="btn btn-ghost btn-sm" onclick="resetForm()">Reset</button>
-    <button class="btn btn-ghost" onclick="close('add-modal')">Cancel</button>
+    <button class="btn btn-ghost" onclick="hideModal('add-modal')">Cancel</button>
     <button class="btn btn-cyan" id="save-btn" onclick="saveGame()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
       Save to Vault
@@ -743,7 +743,7 @@ footer{
 <div class="modal" style="max-width:760px">
   <div class="mhead">
     <div class="mtitle">// GAME DETAILS</div>
-    <button class="mclose" onclick="close('detail-modal')">✕</button>
+    <button class="mclose" onclick="hideModal('detail-modal')">✕</button>
   </div>
   <div class="mbody" id="d-body"></div>
   <div class="mfoot" id="d-foot"></div>
@@ -755,11 +755,11 @@ footer{
 <div class="modal" style="max-width:400px">
   <div class="mhead">
     <div class="mtitle" id="c-title">// CONFIRM</div>
-    <button class="mclose" onclick="close('confirm-modal')">✕</button>
+    <button class="mclose" onclick="hideModal('confirm-modal')">✕</button>
   </div>
   <div class="mbody"><p class="confirm-txt" id="c-msg"></p></div>
   <div class="mfoot">
-    <button class="btn btn-ghost" onclick="close('confirm-modal')">Cancel</button>
+    <button class="btn btn-ghost" onclick="hideModal('confirm-modal')">Cancel</button>
     <button class="btn btn-danger" id="c-ok">Confirm</button>
   </div>
 </div>
@@ -845,7 +845,7 @@ async function apiDel(path){
 ═══════════════════════════════════════ */
 function authAction(){
   if(ADMIN){ confirmDo('// LOG OUT','Log out of the admin vault?',doLogout); }
-  else { open('login-modal'); }
+  else { showModal('login-modal'); }
 }
 
 async function doLogin(){
@@ -860,7 +860,7 @@ async function doLogin(){
     if(!r.ok){showLoginErr(d.error||'Invalid credentials');return;}
     TOKEN=d.token;localStorage.setItem('sg_token',TOKEN);
     ADMIN=true;
-    close('login-modal');
+    hideModal('login-modal');
     toast('Access granted. Welcome, admin.','success');
     updateAuthUI();
     document.getElementById('lu').value='';
@@ -1013,8 +1013,15 @@ function x(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 function dl(id){
   const g=games.find(g=>g.id===id);
   if(!g) return;
-  if(!g.downloadLink){toast('No download link set.','error');return;}
-  window.open(g.downloadLink,'_blank');
+  if(!g.downloadLink){toast('No download link set for this game.','error');return;}
+  const a=document.createElement('a');
+  a.href=g.downloadLink;
+  a.target='_blank';
+  a.rel='noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a),200);
+  toast('Opening download link…','info');
 }
 
 /* ═══════════════════════════════════════
@@ -1025,7 +1032,7 @@ function openAdd(){
   editId=null;
   document.getElementById('add-title').textContent='// ADD GAME';
   resetForm();
-  open('add-modal');
+  showModal('add-modal');
 }
 function openEdit(id){
   if(!ADMIN) return;
@@ -1039,7 +1046,7 @@ function openEdit(id){
   setVal('f-tags',(g.tags||[]).join(', '));
   document.getElementById('f-feat').checked=!!g.featured;
   document.getElementById('f-new').checked=!!g.isNew;
-  open('add-modal');
+  showModal('add-modal');
 }
 function resetForm(){
   ['f-title','f-desc','f-cat','f-plat','f-size','f-ver','f-img','f-link','f-tags'].forEach(id=>setVal(id,''));
@@ -1079,7 +1086,7 @@ async function saveGame(){
     if(!r.ok){toast(d.error||'Failed to save.','error');return;}
     if(editId){ games=games.map(g=>g.id===editId?d:g); toast('Game updated!','success'); }
     else { games.unshift(d); toast('Game added to vault!','success'); }
-    close('add-modal');
+    hideModal('add-modal');
     updateStats();filter();
   }catch{toast('Network error.','error');}
   finally{btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Save to Vault';btn.disabled=false;}
@@ -1141,11 +1148,12 @@ function openDetail(id){
     ${tags?`<div class="d-tags">${tags}</div>`:''}
   `;
   const adminBtns=ADMIN?`
-    <button class="btn btn-ghost btn-sm" onclick="close('detail-modal');openEdit('${g.id}')">
+    <button class="btn btn-ghost btn-sm" onclick="hideModal('detail-modal');openEdit('${g.id}')">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
       Edit
     </button>`:'';
   document.getElementById('d-foot').innerHTML=`
+    <button class="btn btn-ghost" onclick="hideModal('detail-modal')">Close</button>
     <button class="btn btn-ghost" onclick="copyLink('${g.id}')">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
       Copy Link
@@ -1155,7 +1163,7 @@ function openDetail(id){
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Download
     </button>`;
-  open('detail-modal');
+  showModal('detail-modal');
 }
 
 function copyLink(id){
@@ -1197,18 +1205,20 @@ function importLib(e){
 /* ═══════════════════════════════════════
    MODAL HELPERS
 ═══════════════════════════════════════ */
-function open(id){document.getElementById(id).classList.add('on');document.body.style.overflow='hidden';}
-function close(id){document.getElementById(id).classList.remove('on');document.body.style.overflow='';}
-function overlayClick(e,id){if(e.target.id===id) close(id);}
+function showModal(id){document.getElementById(id).classList.add('on');document.body.style.overflow='hidden';}
+function hideModal(id){document.getElementById(id).classList.remove('on');document.body.style.overflow='';}
+function overlayClick(e,id){if(e.target.id===id) hideModal(id);}
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape') ['login-modal','add-modal','detail-modal','confirm-modal'].forEach(id=>{document.getElementById(id).classList.remove('on');});
-  document.body.style.overflow='';
+  if(e.key==='Escape'){
+    ['login-modal','add-modal','detail-modal','confirm-modal'].forEach(id=>{document.getElementById(id).classList.remove('on');});
+    document.body.style.overflow='';
+  }
 });
 function confirmDo(t,msg,fn){
   document.getElementById('c-title').textContent=t;
   document.getElementById('c-msg').textContent=msg;
-  document.getElementById('c-ok').onclick=()=>{close('confirm-modal');fn();};
-  open('confirm-modal');
+  document.getElementById('c-ok').onclick=()=>{hideModal('confirm-modal');fn();};
+  showModal('confirm-modal');
 }
 
 /* ═══════════════════════════════════════
